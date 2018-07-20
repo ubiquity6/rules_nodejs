@@ -25,7 +25,7 @@
 var path = require('path');
 var fs = require('fs');
 
-const DEBUG = false;
+const DEBUG = true;
 
 /**
  * The module roots as pairs of a RegExp to match the require path, and a
@@ -224,13 +224,13 @@ module.constructor._resolveFilename =
     request,
     resolveRunfiles(request),
     resolveRunfiles(
-        'TEMPLATED_user_workspace_name', 'TEMPLATED_label_package', 'node_modules', request),
+        'TEMPLATED_user_workspace_name', 'TEMPLATED_label_package', 'TEMPLATED_node_modules', request),
   ];
   // Additional search path in case the build is across workspaces.
   // See comment in node.bzl.
   if ('TEMPLATED_label_workspace_name') {
     resolveLocations.push(resolveRunfiles(
-        'TEMPLATED_label_workspace_name', 'TEMPLATED_label_package', 'node_modules', request));
+        'TEMPLATED_label_workspace_name', 'TEMPLATED_label_package', 'TEMPLATED_node_modules', request));
   }
   var manifestLocation = resolveRunfiles('manifest');
   for (var location of resolveLocations) {

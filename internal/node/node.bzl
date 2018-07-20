@@ -43,6 +43,7 @@ def _write_loader_script(ctx):
               ["\"" + d + "\"" for d in ctx.attr.bootstrap]),
           "TEMPLATED_entry_point": ctx.attr.entry_point,
           "TEMPLATED_label_package": ctx.attr.node_modules.label.package,
+          "TEMPLATED_node_modules": "node_modules",
           # There are two workspaces in general:
           # A) The user's workspace is the one where the bazel command is run
           # B) The label's workspace contains the target being built/run
