@@ -43,7 +43,7 @@ def _write_loader_script(ctx):
               ["\"" + d + "\"" for d in ctx.attr.bootstrap]),
           "TEMPLATED_entry_point": ctx.attr.entry_point,
           "TEMPLATED_label_package": ctx.attr.node_modules.label.package,
-          "TEMPLATED_node_modules": "node_modules",
+          "TEMPLATED_node_modules": ctx.attr.node_modules_package,
           # There are two workspaces in general:
           # A) The user's workspace is the one where the bazel command is run
           # B) The label's workspace contains the target being built/run
@@ -142,6 +142,8 @@ _NODEJS_EXECUTABLE_ATTRS = {
         in cases where a script with the same name appears in another directory or external workspace.
         """,
         mandatory = True),
+    "node_modules_path": attr.string(
+        default="node_modules"),
     "bootstrap": attr.string_list(
         doc = """JavaScript modules to be loaded before the entry point.
         For example, Angular uses this to patch the Jasmine async primitives for
