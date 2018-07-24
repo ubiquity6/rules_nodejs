@@ -38,12 +38,13 @@ def _write_loader_script(ctx):
       template=ctx.file._loader_template,
       output=ctx.outputs.loader,
       substitutions={
+          "TEMPLATED_prefer_module_roots": str(ctx.attr.prefer_module_roots).lower(),
           "TEMPLATED_module_roots": "\n  " + ",\n  ".join(module_mappings),
           "TEMPLATED_bootstrap": "\n  " + ",\n  ".join(
               ["\"" + d + "\"" for d in ctx.attr.bootstrap]),
           "TEMPLATED_entry_point": ctx.attr.entry_point,
           "TEMPLATED_label_package": ctx.attr.node_modules.label.package,
-          "TEMPLATED_node_modules": ctx.attr.node_modules_package,
+          "TEMPLATED_node_modules": ctx.attr.node_modules_path,
           # There are two workspaces in general:
           # A) The user's workspace is the one where the bazel command is run
           # B) The label's workspace contains the target being built/run
@@ -150,6 +151,8 @@ _NODEJS_EXECUTABLE_ATTRS = {
         zone.js before the first `describe`.
         """,
         default = []),
+    "prefer_module_roots": attr.bool(
+        default = True),
     "data": attr.label_list(
         doc = """Runtime dependencies which may be loaded during execution.""",
         allow_files = True,

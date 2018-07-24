@@ -25,7 +25,9 @@
 var path = require('path');
 var fs = require('fs');
 
-const DEBUG = true;
+const DEBUG = false;
+
+var PREFER_MODULE_ROOTS = TEMPLATED_prefer_module_roots;
 
 /**
  * The module roots as pairs of a RegExp to match the require path, and a
@@ -232,6 +234,24 @@ module.constructor._resolveFilename =
     resolveLocations.push(resolveRunfiles(
         'TEMPLATED_label_workspace_name', 'TEMPLATED_label_package', 'TEMPLATED_node_modules', request));
   }
+
+  if (PREFER_MODULE_ROOTS) {
+    var moduleRoot = resolveToModuleRoot(request);
+    if (moduleRoot) {
+      var moduleRootInRunfiles = resolveRunfiles(moduleRoot);
+      try {
+        var filename = module.constructor._findPath(moduleRootInRunfiles, []);
+        if (!filename) {
+          throw new Error(`No file ${request} found in module root ${moduleRoot}`);
+        }
+        return filename;
+      } catch (e) {
+        console.error(`Failed to findPath for ${moduleRootInRunfiles}`);
+        throw e;
+      }
+    }
+  }
+
   var manifestLocation = resolveRunfiles('manifest');
   for (var location of resolveLocations) {
     try {
@@ -247,20 +267,25 @@ module.constructor._resolveFilename =
     }
   }
 
-  var moduleRoot = resolveToModuleRoot(request);
-  if (moduleRoot) {
-    var moduleRootInRunfiles = resolveRunfiles(moduleRoot);
-    try {
-      var filename = module.constructor._findPath(moduleRootInRunfiles, []);
-      if (!filename) {
-        throw new Error(`No file ${request} found in module root ${moduleRoot}`);
+  if (!PREFER_MODULE_ROOTS) {
+    var moduleRoot = resolveToModuleRoot(request);
+    if (moduleRoot) {
+      var moduleRootInRunfiles = resolveRunfiles(moduleRoot);
+      try {
+        var filename = module.constructor._findPath(moduleRootInRunfiles, []);
+        if (!filename) {
+          throw new Error(`No file ${request} found in module root ${moduleRoot}`);
+        }
+        return filename;
+      } catch (e) {
+        console.error(`Failed to findPath for ${moduleRootInRunfiles}`);
+        throw e;
       }
-      return filename;
-    } catch (e) {
-      console.error(`Failed to findPath for ${moduleRootInRunfiles}`);
-      throw e;
     }
   }
+
+
+  
   var error = new Error(
       `Cannot find module '${request}'\n  looked in:` + failedResolutions.map(r => '\n   ' + r));
   error.code = 'MODULE_NOT_FOUND';
