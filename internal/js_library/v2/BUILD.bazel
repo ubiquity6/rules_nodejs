@@ -10,6 +10,6 @@ exports_files(["babel.rc.js"])
 babel_executable(
     name = "babel",
     babel_deps = [
-        "@build_bazel_rules_nodejs_js_library_deps//:@babel/preset-env",
+        "@build_bazel_rules_nodejs_js_library_deps//@babel/preset-env",
     ],
 )

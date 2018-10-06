@@ -8,9 +8,9 @@ Args:
 """
 def babel_executable(name, babel_deps):
   binary_deps = [
-      "@build_bazel_rules_nodejs_js_library_deps//:@babel/core",
-      "@build_bazel_rules_nodejs_js_library_deps//:commander",
-      "@build_bazel_rules_nodejs_js_library_deps//:mkdirp",
+      "@build_bazel_rules_nodejs_js_library_deps//@babel/core",
+      "@build_bazel_rules_nodejs_js_library_deps//commander",
+      "@build_bazel_rules_nodejs_js_library_deps//mkdirp",
   ]
 
   nodejs_binary(
