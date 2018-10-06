@@ -36,7 +36,8 @@ function fileExists(filePath) {
 
 // This resolver mimics the TypeScript Path Mapping feature, which lets us resolve
 // modules based on a mapping of short names to paths.
-function resolveBazel(importee, importer, baseDir = process.cwd(), resolve = require.resolve, root = rootDir) {
+function resolveBazel(
+    importee, importer, baseDir = process.cwd(), resolve = require.resolve, root = rootDir) {
   function resolveInRootDir(importee) {
     var candidate = path.join(baseDir, root, importee);
     if (DEBUG) console.error(`Rollup: try to resolve '${importee}' at '${candidate}'`);

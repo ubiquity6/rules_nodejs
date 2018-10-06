@@ -31,6 +31,10 @@ local_repository(
     name = "packages_example",
     path = "examples/packages",
 )
+local_repository(
+    name = "devserver_example",
+    path = "examples/devserver",
+)
 
 local_repository(
     name = "bazel_managed_deps_example",
@@ -82,6 +86,9 @@ load("@packages_example//:setup_workspace.bzl", "packages_example_setup_workspac
 
 packages_example_setup_workspace()
 
+load("@devserver_example//:setup_workspace.bzl", "devserver_example_setup_workspace")
+devserver_example_setup_workspace()
+
 # Dependencies to run skydoc
 load("@io_bazel_rules_sass//sass:sass_repositories.bzl", "sass_repositories")
 sass_repositories()
@@ -91,9 +98,20 @@ skydoc_repositories()
 
 # Dependencies to run buildifier and skylint
 load("@io_bazel_rules_go//go:def.bzl", "go_rules_dependencies", "go_register_toolchains")
-
 go_rules_dependencies()
 go_register_toolchains()
+
+load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
+gazelle_dependencies()
+
+load("@io_bazel_rules_webtesting//web:repositories.bzl", "browser_repositories", "web_test_repositories")
+web_test_repositories()
+browser_repositories(
+    chromium = True,
+)
+
+load("@build_bazel_rules_typescript//:defs.bzl", "ts_setup_workspace")
+ts_setup_workspace()
 
 #
 # Install npm dependencies for tests

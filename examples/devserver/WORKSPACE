@@ -1,0 +1,77 @@
+workspace(name = "devserver_example")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "bazel_skylib",
+    url = "https://github.com/bazelbuild/bazel-skylib/archive/0.3.1.zip",
+    strip_prefix = "bazel-skylib-0.3.1",
+    sha256 = "95518adafc9a2b656667bbf517a952e54ce7f350779d0dd95133db4eb5c27fb1",
+)
+
+local_repository(
+    name = "build_bazel_rules_nodejs",
+    path = "../..",
+)
+
+http_archive(
+    name = "io_bazel_rules_webtesting",
+    url = "https://github.com/bazelbuild/rules_webtesting/archive/0.2.1.zip",
+    strip_prefix = "rules_webtesting-0.2.1",
+    sha256 = "7d490aadff9b5262e5251fa69427ab2ffd1548422467cb9f9e1d110e2c36f0fa",
+)
+
+http_archive(
+    name = "io_bazel_rules_go",
+    url = "https://github.com/bazelbuild/rules_go/releases/download/0.14.0/rules_go-0.14.0.tar.gz",
+    sha256 = "5756a4ad75b3703eb68249d50e23f5d64eaf1593e886b9aa931aa6e938c4e301",
+)
+
+http_archive(
+    name = "bazel_gazelle",
+    urls = ["https://github.com/bazelbuild/bazel-gazelle/releases/download/0.14.0/bazel-gazelle-0.14.0.tar.gz"],
+    sha256 = "c0a5739d12c6d05b6c1ad56f2200cb0b57c5a70e03ebd2f7b87ce88cabf09c7b",
+)
+
+http_archive(
+    name = "build_bazel_rules_typescript",
+    url = "https://github.com/bazelbuild/rules_typescript/archive/0.16.1.zip",
+    strip_prefix = "rules_typescript-0.16.1",
+    sha256 = "5b2b0bc63cfcffe7bf97cad2dad3b26a73362f806de66207051f66c87956a995",
+)
+
+load("@build_bazel_rules_nodejs//:defs.bzl", "node_repositories")
+
+# Install a hermetic version of node.
+# After this is run, these labels will be available:
+# - NodeJS:
+#   @nodejs//:node
+# - NPM:
+#   @nodejs//:npm
+# - The yarn package manager:
+#   @nodejs//:yarn
+node_repositories(package_json = ["//:package.json"], node_version = "8.11.1", yarn_version = "1.6.0")
+
+# Now the user must run either
+# bazel run @nodejs//:yarn
+# or
+# bazel run @nodejs//:npm
+
+load("@io_bazel_rules_go//go:def.bzl", "go_rules_dependencies", "go_register_toolchains")
+go_rules_dependencies()
+go_register_toolchains()
+
+load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
+gazelle_dependencies()
+
+load("@io_bazel_rules_webtesting//web:repositories.bzl", "browser_repositories", "web_test_repositories")
+web_test_repositories()
+browser_repositories(
+    chromium = True,
+)
+
+load("@build_bazel_rules_typescript//:defs.bzl", "ts_setup_workspace")
+ts_setup_workspace()
+
+load("//:setup_workspace.bzl", "devserver_example_setup_workspace")
+devserver_example_setup_workspace()

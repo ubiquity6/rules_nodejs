@@ -1,0 +1,15 @@
+load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary")
+load(":babel_executable.bzl", "babel_executable")
+
+# package(default_visibility = ["//internal:__subpackages__"])
+# TODO(Markus): Remove public visibility
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["babel.rc.js"])
+
+babel_executable(
+    name = "babel",
+    babel_deps = [
+        "@build_bazel_rules_nodejs_js_library_deps//:@babel/preset-env",
+    ],
+)

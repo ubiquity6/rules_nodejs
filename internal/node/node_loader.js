@@ -104,9 +104,8 @@ function loadRunfilesManifest(manifestPath) {
     // This only works if there is at least one runfile in the workspace root, but that is
     // also the only case when we need to map back to the runfiles.
     // See https://github.com/bazelbuild/bazel/issues/5926 for more information.
-    if (!workspaceRoot && runfilesPath.startsWith(USER_WORKSPACE_NAME) 
-        && !runfilesPath.startsWith(`${USER_WORKSPACE_NAME}/external/`) ) {
-
+    if (!workspaceRoot && runfilesPath.startsWith(USER_WORKSPACE_NAME) &&
+        !runfilesPath.startsWith(`${USER_WORKSPACE_NAME}/external/`)) {
       // Plus one to include the slash at the end.
       const runfilesPathRemainder = runfilesPath.slice(USER_WORKSPACE_NAME.length + 1);
       if (realPath.endsWith(runfilesPathRemainder)) {
@@ -128,9 +127,9 @@ function loadRunfilesManifest(manifestPath) {
   if (DEBUG) console.error(`node_loader: using genRoot ${genRoot}`);
   if (DEBUG) console.error(`node_loader: using workspaceRoot ${workspaceRoot}`);
 
-  return { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot };
+  return {runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot};
 }
-const { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot } =
+const {runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot} =
     // On Windows, Bazel sets RUNFILES_MANIFEST_ONLY=1.
     // On every platform, Bazel also sets RUNFILES_MANIFEST_FILE, but on Linux
     // and macOS it's faster to use the symlinks in RUNFILES_DIR rather than resolve
@@ -270,16 +269,16 @@ function resolveRunfiles(parent, ...pathSegments) {
       if (parentRunfile) {
         runfilesEntry = path.join(path.dirname(parentRunfile), runfilesEntry);
       }
-    } else if (runfilesEntry.startsWith(binRoot) || runfilesEntry.startsWith(genRoot)
-        || runfilesEntry.startsWith(workspaceRoot)) {
-      // For absolute paths, replace binRoot, genRoot or workspaceRoot with USER_WORKSPACE_NAME 
+    } else if (
+        runfilesEntry.startsWith(binRoot) || runfilesEntry.startsWith(genRoot) ||
+        runfilesEntry.startsWith(workspaceRoot)) {
+      // For absolute paths, replace binRoot, genRoot or workspaceRoot with USER_WORKSPACE_NAME
       // to enable lookups.
       // It's OK to do multiple replacements because all of these are absolute paths with drive
       // names (e.g. C:\), and on Windows you can't have drive names in the middle of paths.
-      runfilesEntry = runfilesEntry
-        .replace(binRoot, `${USER_WORKSPACE_NAME}/`)
-        .replace(genRoot, `${USER_WORKSPACE_NAME}/`)
-        .replace(workspaceRoot, `${USER_WORKSPACE_NAME}/`);       
+      runfilesEntry = runfilesEntry.replace(binRoot, `${USER_WORKSPACE_NAME}/`)
+                          .replace(genRoot, `${USER_WORKSPACE_NAME}/`)
+                          .replace(workspaceRoot, `${USER_WORKSPACE_NAME}/`);
     }
 
     // Normalize and replace path separators to conform to the ones in the manifest.
@@ -318,10 +317,10 @@ function resolveRunfiles(parent, ...pathSegments) {
 }
 
 var originalResolveFilename = module.constructor._resolveFilename;
-module.constructor._resolveFilename = function(request, parent) {
+module.constructor._resolveFilename =
+    function(request, parent) {
   const parentFilename = (parent && parent.filename) ? parent.filename : undefined;
-  if (DEBUG)
-    console.error(`node_loader: resolve ${request} from ${parentFilename}`);
+  if (DEBUG) console.error(`node_loader: resolve ${request} from ${parentFilename}`);
 
   const failedResolutions = [];
 
@@ -334,8 +333,7 @@ module.constructor._resolveFilename = function(request, parent) {
       if (DEBUG)
         console.error(
             `node_loader: resolved ${request} to built-in, relative or absolute import ` +
-            `${resolved} from ${parentFilename}`
-        );
+            `${resolved} from ${parentFilename}`);
       return resolved;
     } else {
       // Resolved is not a built-in module, relative or absolute import
@@ -351,8 +349,7 @@ module.constructor._resolveFilename = function(request, parent) {
           if (DEBUG)
             console.error(
                 `node_loader: resolved ${request} within parent node_modules to ` +
-                `${resolved} from ${parentFilename}`
-            );
+                `${resolved} from ${parentFilename}`);
           return resolved;
         } else {
           throw new Error(
@@ -371,8 +368,7 @@ module.constructor._resolveFilename = function(request, parent) {
     const resolved = originalResolveFilename(resolveRunfiles(parentFilename, request), parent);
     if (DEBUG)
       console.error(
-          `node_loader: resolved ${request} within runfiles to ${resolved} from ${parentFilename}`
-      );
+          `node_loader: resolved ${request} within runfiles to ${resolved} from ${parentFilename}`);
     return resolved;
   } catch (e) {
     failedResolutions.push(`runfiles - ${e.toString()}`);
@@ -397,8 +393,7 @@ module.constructor._resolveFilename = function(request, parent) {
         if (DEBUG)
           console.error(
               `node_loader: resolved ${request} within node_modules ` +
-              `(${parentSegments[0]}/node_modules) to ${resolved} from ${relativeParentFilename}`
-          );
+              `(${parentSegments[0]}/node_modules) to ${resolved} from ${relativeParentFilename}`);
         return resolved;
       } catch (e) {
         failedResolutions.push(`${parentSegments[0]}/node_modules - ${e.toString()}`);
@@ -409,13 +404,12 @@ module.constructor._resolveFilename = function(request, parent) {
   // If import was not resolved above then attempt to resolve
   // within the node_modules filegroup in use
   try {
-    const resolved = originalResolveFilename(
-        resolveRunfiles(undefined, NODE_MODULES_ROOT, request), parent);
+    const resolved =
+        originalResolveFilename(resolveRunfiles(undefined, NODE_MODULES_ROOT, request), parent);
     if (DEBUG)
       console.error(
           `node_loader: resolved ${request} within node_modules (${NODE_MODULES_ROOT}) to ` +
-          `${resolved} from ${parentFilename}`
-      );
+          `${resolved} from ${parentFilename}`);
     return resolved;
   } catch (e) {
     failedResolutions.push(`node_modules attribute (${NODE_MODULES_ROOT}) - ${e.toString()}`);
@@ -438,7 +432,8 @@ module.constructor._resolveFilename = function(request, parent) {
   }
 
   const error = new Error(
-      `TEMPLATED_target cannot find module '${request}' required by '${parentFilename}'\n  looked in:` +
+      `TEMPLATED_target cannot find module '${request}' required by '${
+          parentFilename}'\n  looked in:` +
       failedResolutions.map(r => `\n   ${r}\n`));
   error.code = 'MODULE_NOT_FOUND';
   throw error;

@@ -8,12 +8,12 @@ describe('node data resolution', () => {
   it('should be able to resolve data files through relative paths', () => {
     const resolvedRelativeDataPath = require.resolve(relativeDataPath);
     const dataContent = fs.readFileSync(resolvedRelativeDataPath);
-    expect(JSON.parse(dataContent)).toEqual({ "value": 42 });
+    expect(JSON.parse(dataContent)).toEqual({'value': 42});
   });
   it('should be able to resolve data files through absolute paths', () => {
     const resolvedAbsoluteDataPath = require.resolve(path.join(__dirname, relativeDataPath));
     const dataContent = fs.readFileSync(resolvedAbsoluteDataPath);
-    expect(JSON.parse(dataContent)).toEqual({ "value": 42 });
+    expect(JSON.parse(dataContent)).toEqual({'value': 42});
   });
   it('should throw when resolving files that are outside the sandbox', () => {
     if (process.platform.startsWith('win') && !isBuiltFile) {
@@ -29,9 +29,9 @@ describe('node data resolution', () => {
     const resolvedRelativeDataPath = require.resolve(relativeDataPath);
     const thisFilePath = __filename;
     const relativePathFromDataToThisFile = path.join('../', path.basename(thisFilePath));
-    const joinedPathFromDataToThisFile = path.join(path.dirname(resolvedRelativeDataPath), 
-      relativePathFromDataToThisFile)
-    
+    const joinedPathFromDataToThisFile =
+        path.join(path.dirname(resolvedRelativeDataPath), relativePathFromDataToThisFile)
+
     const resolvedPathFromDataToThisFile = require.resolve(joinedPathFromDataToThisFile);
     expect(resolvedPathFromDataToThisFile).toEqual(thisFilePath);
   });
