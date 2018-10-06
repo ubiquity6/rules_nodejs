@@ -7,9 +7,13 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["babel.rc.js"])
 
+
 babel_executable(
     name = "babel",
-    babel_deps = [
+    deps = [
+        "@build_bazel_rules_nodejs_js_library_deps//@babel/core",
+        "@build_bazel_rules_nodejs_js_library_deps//commander",
+        "@build_bazel_rules_nodejs_js_library_deps//mkdirp",
         "@build_bazel_rules_nodejs_js_library_deps//@babel/preset-env",
     ],
 )
