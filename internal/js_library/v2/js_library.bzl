@@ -66,6 +66,8 @@ def _babel_conversion(ctx, inputs, config, out_dir, mnemonic, description):
 
 def _es5_conversion(ctx, inputs, config):
   out_dir = ""
+  if ctx.attr.out_dir:
+    out_dir = ctx.attr.out_dir
   return _babel_conversion(ctx, inputs, config, out_dir, "JsCompile", "Babel")
 
 def _collect_sources(ctx, es5_outputs):
@@ -154,6 +156,7 @@ js_library = rule(
             cfg="host",
             default = Label("//internal/js_library/v2:babel")
         ),
+        "out_dir": attr.string(),
         "_babelrc_tmpl": attr.label(
             allow_single_file = True,
             default = Label("//internal/js_library/v2:babel.rc.js")
