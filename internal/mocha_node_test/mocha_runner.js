@@ -26,22 +26,18 @@ const runner = mocha.run(function(failures) {
   if (failures) {
     hasFailure = true;
   }
+
+  if (hasFailure) {
+    process.exitCode = BAZEL_EXIT_TESTS_FAILED;
+  } else if (!hasTest) {
+    process.exitCode = BAZEL_EXIT_NO_TESTS_FOUND;
+  } else {
+    process.exitCode = 0;
+  }
+
+  process.exit(process.exitCode);
 });
 
 runner.on('test', () => {
   hasTest = true;
-});
-
-
-
-process.on('exit', (code) => {
-  // if the code has executed normally, potentially overwrite the process code
-  // based on test results.
-  if (code === 0) {
-    if (hasFailure) {
-      process.exitCode = BAZEL_EXIT_TESTS_FAILED;
-    } else if (!hasTest) {
-      process.exitCode = BAZEL_EXIT_NO_TESTS_FOUND;
-    } 
-  }
 });
