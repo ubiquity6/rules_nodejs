@@ -345,6 +345,9 @@ def _yarn_install_impl(repository_ctx):
         root,
     ]
 
+    if repository_ctx.attr.frozen_lockfile:
+        args.append("--frozen-lockfile")
+
     if not repository_ctx.attr.use_global_yarn_cache:
         args.extend(["--cache-folder", repository_ctx.path("_yarn_cache")])
     else:
@@ -379,6 +382,13 @@ yarn_install = repository_rule(
 
 See yarn CLI docs https://yarnpkg.com/en/docs/cli/install for complete list of supported arguments.""",
             default = [],
+        ),
+        "frozen_lockfile": attr.bool(
+            default = False,
+            doc = """Passes the --frozen-lockfile flag to prevent updating yarn.lock.
+
+            Note that enabling this option will require that you run yarn outside of Bazel
+            when making changes to package.json.""",
         ),
         "use_global_yarn_cache": attr.bool(
             default = True,
