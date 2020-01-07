@@ -25,33 +25,49 @@
 var path = require('path');
 var fs = require('fs');
 
-const DEBUG = false;
+const isWindows = /^win/i.test(process.platform);
+// Ensure that node is added to the path for any subprocess calls
+process.env.PATH = [path.dirname(process.execPath), process.env.PATH].join(isWindows ? ';' : ':');
+
+const VERBOSE_LOGS = !!process.env['VERBOSE_LOGS'];
+// If you're really in trouble debugging a module resolution, change this to true
+const SILLY_VERBOSE = false;
+
+function log_verbose(...m) {
+  // This is a template file so we use __filename to output the actual filename
+  if (VERBOSE_LOGS) console.error(`[${path.basename(__filename)}]`, ...m);
+}
 
 /**
  * The module roots as pairs of a RegExp to match the require path, and a
  * module_root to substitute for the require path.
+ * Ordered by regex length, longest to smallest. 
  * @type {!Array<{module_name: RegExp, module_root: string}>}
  */
-var MODULE_ROOTS = [TEMPLATED_module_roots];
-
-/**
- * Array of bootstrap modules that need to be loaded before the entry point.
- */
-var BOOTSTRAP = [TEMPLATED_bootstrap];
+var MODULE_ROOTS = [
+  TEMPLATED_module_roots
+].sort((a, b) => b.module_name.toString().length - a.module_name.toString().length);
 
 const USER_WORKSPACE_NAME = 'TEMPLATED_user_workspace_name';
 const NODE_MODULES_ROOT = 'TEMPLATED_node_modules_root';
 const BIN_DIR = 'TEMPLATED_bin_dir';
+const ENTRY_POINT = 'TEMPLATED_entry_point';
 const GEN_DIR = 'TEMPLATED_gen_dir';
+const INSTALL_SOURCE_MAP_SUPPORT = TEMPLATED_install_source_map_support;
+const TARGET = 'TEMPLATED_target';
 
-if (DEBUG)
-  console.error(`
-node_loader: running TEMPLATED_target with
-  MODULE_ROOTS: ${JSON.stringify(MODULE_ROOTS, undefined, 2)}
-  BOOTSTRAP: ${JSON.stringify(BOOTSTRAP, undefined, 2)}
-  NODE_MODULES_ROOT: ${NODE_MODULES_ROOT}
+log_verbose(`running ${TARGET} with
+  cwd: ${process.cwd()}
+  runfiles: ${process.env.RUNFILES}
+
   BIN_DIR: ${BIN_DIR}
+  ENTRY_POINT: ${ENTRY_POINT}
   GEN_DIR: ${GEN_DIR}
+  INSTALL_SOURCE_MAP_SUPPORT: ${INSTALL_SOURCE_MAP_SUPPORT}
+  MODULE_ROOTS: ${JSON.stringify(MODULE_ROOTS, undefined, 2)}
+  NODE_MODULES_ROOT: ${NODE_MODULES_ROOT}
+  TARGET: ${TARGET}
+  USER_WORKSPACE_NAME: ${USER_WORKSPACE_NAME}
 `);
 
 function resolveToModuleRoot(path) {
@@ -59,22 +75,16 @@ function resolveToModuleRoot(path) {
     throw new Error('resolveToModuleRoot missing path: ' + path);
   }
 
-  var match;
-  var lengthOfMatch = 0;
-  for (var i = 0; i < MODULE_ROOTS.length; i++) {
-    var m = MODULE_ROOTS[i];
-    var p = path.replace(m.module_name, m.module_root);
-    // Longest regex wins when multiple match
-    var len = m.module_name.toString().length;
-    if (p !== path && len > lengthOfMatch) {
-      lengthOfMatch = len;
-      match = p;
-    }
+  // We want all possible matches.
+  const orderedMatches = MODULE_ROOTS.filter(m => m.module_name.test(path));
+
+  if (orderedMatches.length === 0) {
+    return null;
+  } else {
+    // Longest regex wins when multiple match, and the list is already ordered by length.
+    const m = orderedMatches[0];
+    return path.replace(m.module_name, m.module_root);
   }
-  if (match) {
-    return match;
-  }
-  return null;
 }
 
 /**
@@ -87,32 +97,48 @@ function resolveToModuleRoot(path) {
  * See https://github.com/bazelbuild/bazel/issues/3726
  */
 function loadRunfilesManifest(manifestPath) {
-  if (DEBUG) console.error(`node_loader: using manifest ${manifestPath}`);
+  // Normalize slashes in manifestPath so they match slashes in manifest file
+  manifestPath = manifestPath.replace(/\\/g, '/');
+
+  log_verbose(`using manifest ${manifestPath}`);
 
   // Create the manifest and reverse manifest maps.
   const runfilesManifest = Object.create(null);
   const reverseRunfilesManifest = Object.create(null);
   const input = fs.readFileSync(manifestPath, {encoding: 'utf-8'});
-  let workspaceRoot;
+  const outputBase = manifestPath.substring(0, manifestPath.indexOf('/execroot/'));
+
+  // Absolute path that refers to the local workspace path. We need to determine the absolute
+  // path to the local workspace because it allows us to support absolute path resolving
+  // for runfiles.
+  let localWorkspacePath = null;
+
   for (const line of input.split('\n')) {
     if (!line) continue;
     const [runfilesPath, realPath] = line.split(' ');
     runfilesManifest[runfilesPath] = realPath;
     reverseRunfilesManifest[realPath] = runfilesPath;
 
-    // Determine workspace root to convert absolute paths into runfile paths.
-    // This only works if there is at least one runfile in the workspace root, but that is
-    // also the only case when we need to map back to the runfiles.
-    // See https://github.com/bazelbuild/bazel/issues/5926 for more information.
-    if (!workspaceRoot && runfilesPath.startsWith(USER_WORKSPACE_NAME) 
-        && !runfilesPath.startsWith(`${USER_WORKSPACE_NAME}/external/`) ) {
-
-      // Plus one to include the slash at the end.
-      const runfilesPathRemainder = runfilesPath.slice(USER_WORKSPACE_NAME.length + 1);
-      if (realPath.endsWith(runfilesPathRemainder)) {
-        workspaceRoot = realPath.slice(0, realPath.length - runfilesPathRemainder.length);
-      }
+    // We don't need to try determining the local workspace path for the current runfile
+    // mapping in case we already determined the local workspace path, the current
+    // runfile refers to a different workspace, or the current runfile resolves to a file
+    // in the bazel-out directory (bin/genfiles directory). Also exclude the case of no
+    // realpath which fixes https://github.com/bazelbuild/rules_nodejs/issues/1307.
+    if (localWorkspacePath || !runfilesPath.startsWith(USER_WORKSPACE_NAME) || !realPath ||
+        realPath.startsWith(outputBase)) {
+      continue;
     }
+
+    // Relative path for the runfile. We can compute that path by removing the leading
+    // workspace name. e.g. `my_workspace/src/my-runfile.js` becomes `src/my-runfile.js`.
+    const relativeWorkspacePath = runfilesPath.slice(USER_WORKSPACE_NAME.length + 1);
+
+    // TODO(gregmagolan): should not be needed when --nolegacy_external_runfiles is default
+    if (relativeWorkspacePath.startsWith('external/')) {
+      continue;
+    }
+
+    localWorkspacePath = realPath.slice(0, -relativeWorkspacePath.length);
   }
 
   // Determine bin and gen root to convert absolute paths into runfile paths.
@@ -124,13 +150,14 @@ function loadRunfilesManifest(manifestPath) {
     genRoot = `${execRoot}${GEN_DIR}/`;
   }
 
-  if (DEBUG) console.error(`node_loader: using binRoot ${binRoot}`);
-  if (DEBUG) console.error(`node_loader: using genRoot ${genRoot}`);
-  if (DEBUG) console.error(`node_loader: using workspaceRoot ${workspaceRoot}`);
+  log_verbose(`using outputBase ${outputBase}`);
+  log_verbose(`using binRoot ${binRoot}`);
+  log_verbose(`using genRoot ${genRoot}`);
+  log_verbose(`using localWorkspacePath ${localWorkspacePath}`);
 
-  return { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot };
+  return { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, localWorkspacePath };
 }
-const { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, workspaceRoot } =
+const { runfilesManifest, reverseRunfilesManifest, binRoot, genRoot, localWorkspacePath } =
     // On Windows, Bazel sets RUNFILES_MANIFEST_ONLY=1.
     // On every platform, Bazel also sets RUNFILES_MANIFEST_FILE, but on Linux
     // and macOS it's faster to use the symlinks in RUNFILES_DIR rather than resolve
@@ -164,6 +191,9 @@ function readDir(dir) {
 
 function loadAsFileSync(res) {
   if (isFile(res)) {
+    return res;
+  }
+  if (isFile(res + '.mjs')) {
     return res;
   }
   if (isFile(res + '.js')) {
@@ -200,7 +230,8 @@ function loadAsDirectorySync(res) {
 }
 
 function resolveManifestFile(res) {
-  const maybe = runfilesManifest[res] || runfilesManifest[res + '.js'];
+  const maybe =
+      runfilesManifest[res] || runfilesManifest[res + '.mjs'] || runfilesManifest[res + '.js'];
   if (maybe) {
     return maybe;
   }
@@ -219,14 +250,15 @@ function resolveManifestFile(res) {
       files.forEach(f => {
         runfilesManifest[path.posix.join(test, f)] = path.posix.join(tree, f);
       })
-      return runfilesManifest[res] || runfilesManifest[res + '.js'];
+      return runfilesManifest[res] || runfilesManifest[res + '.mjs'] ||
+          runfilesManifest[res + '.js'];
     }
     segments.pop();
   }
 }
 
 function resolveManifestDirectory(res) {
-  const pkgfile = runfilesManifest[`${res}/package.json`];
+  const pkgfile = runfilesManifest[path.posix.join(res, 'package.json')];
   if (pkgfile) {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgfile, 'UTF-8'));
@@ -249,20 +281,24 @@ function resolveManifestDirectory(res) {
     } catch (e) {
     }
   }
-  return resolveManifestFile(`${res}/index`)
+  return resolveManifestFile(path.posix.join(res, 'index'));
 }
 
 function resolveRunfiles(parent, ...pathSegments) {
   // Remove any empty strings from pathSegments
-  pathSegments = pathSegments.filter(segment => segment);
+  // Normalize to forward slash, because even on Windows the runfiles_manifest file
+  // is written with forward slash.
+  let runfilesEntry = pathSegments.filter(segment => segment).join('/').replace(/\\/g, '/');
 
-  const defaultPath = path.join(process.env.RUNFILES, ...pathSegments);
+  // Trim `${USER_WORKSPACE_NAME}/external/` from start of runfilesEntry
+  const externalWorkspacePrefix = `${USER_WORKSPACE_NAME}/external/`;
+  if (runfilesEntry.startsWith(externalWorkspacePrefix)) {
+    runfilesEntry = runfilesEntry.slice(externalWorkspacePrefix.length);
+  }
+
+  const runfilesPath = path.join(process.env.RUNFILES, runfilesEntry);
 
   if (runfilesManifest) {
-    // Normalize to forward slash, because even on Windows the runfiles_manifest file
-    // is written with forward slash.
-    let runfilesEntry = pathSegments.join('/').replace(/\\/g, '/');
-
     if (parent && runfilesEntry.startsWith('.')) {
       // Resolve relative paths from manifest files.
       const normalizedParent = parent.replace(/\\/g, '/');
@@ -271,71 +307,91 @@ function resolveRunfiles(parent, ...pathSegments) {
         runfilesEntry = path.join(path.dirname(parentRunfile), runfilesEntry);
       }
     } else if (runfilesEntry.startsWith(binRoot) || runfilesEntry.startsWith(genRoot)
-        || runfilesEntry.startsWith(workspaceRoot)) {
-      // For absolute paths, replace binRoot, genRoot or workspaceRoot with USER_WORKSPACE_NAME 
-      // to enable lookups.
+        || runfilesEntry.startsWith(localWorkspacePath)) {
+      // For absolute paths, replace binRoot, genRoot or localWorkspacePath with
+      // USER_WORKSPACE_NAME to enable lookups.
       // It's OK to do multiple replacements because all of these are absolute paths with drive
       // names (e.g. C:\), and on Windows you can't have drive names in the middle of paths.
       runfilesEntry = runfilesEntry
         .replace(binRoot, `${USER_WORKSPACE_NAME}/`)
         .replace(genRoot, `${USER_WORKSPACE_NAME}/`)
-        .replace(workspaceRoot, `${USER_WORKSPACE_NAME}/`);       
+        .replace(localWorkspacePath, `${USER_WORKSPACE_NAME}/`);
     }
 
     // Normalize and replace path separators to conform to the ones in the manifest.
     runfilesEntry = path.normalize(runfilesEntry).replace(/\\/g, '/');
 
-    if (DEBUG) console.error('node_loader: try to resolve in runfiles manifest', runfilesEntry);
+    log_verbose('try to resolve in runfiles manifest', runfilesEntry);
 
     let maybe = resolveManifestFile(runfilesEntry);
     if (maybe) {
-      if (DEBUG) console.error('node_loader: resolved manifest file', maybe);
+      log_verbose('resolved manifest file', maybe);
       return maybe;
     }
 
     maybe = resolveManifestDirectory(runfilesEntry);
     if (maybe) {
-      if (DEBUG) console.error('node_loader: resolved via manifest directory', maybe);
+      log_verbose('resolved via manifest directory', maybe);
       return maybe;
     }
   } else {
-    if (DEBUG) console.error('node_loader: try to resolve in runfiles', defaultPath);
+    log_verbose('try to resolve in runfiles', runfilesPath);
 
-    let maybe = loadAsFileSync(defaultPath);
+    let maybe = loadAsFileSync(runfilesPath);
     if (maybe) {
-      if (DEBUG) console.error('node_loader: resolved file', maybe);
+      log_verbose('resolved file', maybe);
       return maybe;
     }
 
-    maybe = loadAsDirectorySync(defaultPath);
+    maybe = loadAsDirectorySync(runfilesPath);
     if (maybe) {
-      if (DEBUG) console.error('node_loader: resolved via directory', maybe);
+      log_verbose('resolved via directory', maybe);
       return maybe;
     }
   }
 
-  return defaultPath;
+  return runfilesPath;
 }
 
 var originalResolveFilename = module.constructor._resolveFilename;
-module.constructor._resolveFilename = function(request, parent) {
+module.constructor._resolveFilename = function(request, parent, isMain, options) {
   const parentFilename = (parent && parent.filename) ? parent.filename : undefined;
-  if (DEBUG)
-    console.error(`node_loader: resolve ${request} from ${parentFilename}`);
+  if (SILLY_VERBOSE) log_verbose(`resolve ${request} from ${parentFilename}`);
 
   const failedResolutions = [];
+
+  // Attempt to resolve to module root.
+  // This should be the first attempted resolution because:
+  // - it's fairly cheap to check (regex over a small array); 
+  // - it is be very common when there are a lot of packages built from source;
+  if (!isMain) {
+    // Don't resolve to module root if this is the main entry point
+    // as the main entry point will always be fully qualified with the
+    // workspace name and full path.
+    // See https://github.com/bazelbuild/rules_nodejs/issues/834
+    const moduleRoot = resolveToModuleRoot(request);
+    if (moduleRoot) {
+      const moduleRootInRunfiles = resolveRunfiles(undefined, moduleRoot);
+      const filename = module.constructor._findPath(moduleRootInRunfiles, []);
+      if (filename) {
+        return filename;
+      } else {
+        failedResolutions.push(
+            `module root ${moduleRoot} - No file ${request} found in module root ${moduleRoot}`);
+      }
+    }
+  }
 
   // Built-in modules, relative, absolute imports and npm dependencies
   // can be resolved using request
   try {
-    const resolved = originalResolveFilename(request, parent);
+    const resolved = originalResolveFilename(request, parent, isMain, options);
     if (resolved === request || request.startsWith('.') || request.startsWith('/') ||
         request.match(/^[A-Z]\:[\\\/]/i)) {
-      if (DEBUG)
-        console.error(
-            `node_loader: resolved ${request} to built-in, relative or absolute import ` +
-            `${resolved} from ${parentFilename}`
-        );
+      if (SILLY_VERBOSE)
+        log_verbose(
+            `resolved ${request} to built-in, relative or absolute import ` +
+            `${resolved} from ${parentFilename}`);
       return resolved;
     } else {
       // Resolved is not a built-in module, relative or absolute import
@@ -348,11 +404,9 @@ module.constructor._resolveFilename = function(request, parent) {
         const relative = path.relative(parentRoot, resolved);
         if (!relative.startsWith('..')) {
           // Resolved within parent node_modules
-          if (DEBUG)
-            console.error(
-                `node_loader: resolved ${request} within parent node_modules to ` +
-                `${resolved} from ${parentFilename}`
-            );
+          log_verbose(
+              `resolved ${request} within parent node_modules to ` +
+              `${resolved} from ${parentFilename}`);
           return resolved;
         } else {
           throw new Error(
@@ -368,11 +422,8 @@ module.constructor._resolveFilename = function(request, parent) {
   // If the import is not a built-in module, an absolute, relative import or a
   // dependency of an npm package, attempt to resolve against the runfiles location
   try {
-    const resolved = originalResolveFilename(resolveRunfiles(parentFilename, request), parent);
-    if (DEBUG)
-      console.error(
-          `node_loader: resolved ${request} within runfiles to ${resolved} from ${parentFilename}`
-      );
+    const resolved = originalResolveFilename(resolveRunfiles(parentFilename, request), parent, isMain, options);
+    log_verbose(`resolved ${request} within runfiles to ${resolved} from ${parentFilename}`);
     return resolved;
   } catch (e) {
     failedResolutions.push(`runfiles - ${e.toString()}`);
@@ -385,6 +436,7 @@ module.constructor._resolveFilename = function(request, parent) {
   if (relativeParentFilename && !relativeParentFilename.startsWith('..')) {
     // Remove leading USER_WORKSPACE_NAME/external so that external workspace name is
     // always the first segment
+    // TODO(gregmagolan): should not be needed when --nolegacy_external_runfiles is default
     const externalPrefix = `${USER_WORKSPACE_NAME}/external/`;
     if (relativeParentFilename.startsWith(externalPrefix)) {
       relativeParentFilename = relativeParentFilename.substr(externalPrefix.length);
@@ -392,13 +444,10 @@ module.constructor._resolveFilename = function(request, parent) {
     const parentSegments = relativeParentFilename.split('/');
     if (parentSegments[0] !== USER_WORKSPACE_NAME) {
       try {
-        const resolved = originalResolveFilename(
-            resolveRunfiles(undefined, parentSegments[0], 'node_modules', request), parent);
-        if (DEBUG)
-          console.error(
-              `node_loader: resolved ${request} within node_modules ` +
-              `(${parentSegments[0]}/node_modules) to ${resolved} from ${relativeParentFilename}`
-          );
+        const resolved = originalResolveFilename(resolveRunfiles(undefined, parentSegments[0], 'node_modules', request), parent, isMain, options);
+        log_verbose(
+            `resolved ${request} within node_modules ` +
+            `(${parentSegments[0]}/node_modules) to ${resolved} from ${relativeParentFilename}`);
         return resolved;
       } catch (e) {
         failedResolutions.push(`${parentSegments[0]}/node_modules - ${e.toString()}`);
@@ -409,60 +458,44 @@ module.constructor._resolveFilename = function(request, parent) {
   // If import was not resolved above then attempt to resolve
   // within the node_modules filegroup in use
   try {
-    const resolved = originalResolveFilename(
-        resolveRunfiles(undefined, NODE_MODULES_ROOT, request), parent);
-    if (DEBUG)
-      console.error(
-          `node_loader: resolved ${request} within node_modules (${NODE_MODULES_ROOT}) to ` +
-          `${resolved} from ${parentFilename}`
-      );
+    const resolved = originalResolveFilename(resolveRunfiles(undefined, NODE_MODULES_ROOT, request), parent, isMain, options);
+    log_verbose(
+        `resolved ${request} within node_modules (${NODE_MODULES_ROOT}) to ` +
+        `${resolved} from ${parentFilename}`);
     return resolved;
   } catch (e) {
     failedResolutions.push(`node_modules attribute (${NODE_MODULES_ROOT}) - ${e.toString()}`);
   }
 
-  // Finally, attempt to resolve to module root
-  const moduleRoot = resolveToModuleRoot(request);
-  if (moduleRoot) {
-    const moduleRootInRunfiles = resolveRunfiles(undefined, moduleRoot);
-    try {
-      const filename = module.constructor._findPath(moduleRootInRunfiles, []);
-      if (!filename) {
-        throw new Error(`No file ${request} found in module root ${moduleRoot}`);
-      }
-      return filename;
-    } catch (e) {
-      console.error(`Failed to findPath for ${moduleRootInRunfiles}`);
-      throw e;
-    }
+  // Print the same error message that vanilla nodejs does.
+  // See https://github.com/bazelbuild/rules_nodejs/issues/1015
+  let moduleNotFoundError = `Cannot find module '${request}'. ` +
+      'Please verify that the package.json has a valid "main" entry';
+  if (VERBOSE_LOGS) {
+    moduleNotFoundError += `\nrequired in target ${TARGET} by '${parentFilename}'\n  looked in:\n` +
+        failedResolutions.map(r => `    ${r}`).join('\n') + '\n';
   }
-
-  const error = new Error(
-      `TEMPLATED_target cannot find module '${request}' required by '${parentFilename}'\n  looked in:` +
-      failedResolutions.map(r => `\n   ${r}\n`));
+  const error = new Error(moduleNotFoundError);
   error.code = 'MODULE_NOT_FOUND';
+  // todo - error.path = ?;
+  error.requestPath = parentFilename;
+  error.bazelTarget = TARGET;
+  error.failedResolutions = failedResolutions;
+
   throw error;
 }
 
 // Before loading anything that might print a stack, install the
 // source-map-support.
-if (TEMPLATED_install_source_map_support) {
+if (INSTALL_SOURCE_MAP_SUPPORT) {
   try {
-    require('source-map-support').install();
-  } catch (e) {
-    console.error(`WARNING: source-map-support module not installed.
-    Stack traces from languages like TypeScript will point to generated .js files.
-    Set install_source_map_support = False in TEMPLATED_target to turn off this warning.
-    `);
-  }
-}
-// Load all bootstrap modules before loading the entrypoint.
-for (var i = 0; i < BOOTSTRAP.length; i++) {
-  try {
-    module.constructor._load(BOOTSTRAP[i], this);
-  } catch (e) {
-    console.error('bootstrap failure ' + e.stack || e);
-    process.exit(1);
+    const sourcemap_support_package = path.resolve(process.cwd(),
+          '../build_bazel_rules_nodejs/third_party/github.com/source-map-support');
+    require(sourcemap_support_package).install();
+  } catch (_) {
+    log_verbose(`WARNING: source-map-support module not installed.
+      Stack traces from languages like TypeScript will point to generated .js files.
+      Set install_source_map_support = False in ${TARGET} to turn off this warning.`);
   }
 }
 
@@ -470,24 +503,11 @@ if (require.main === module) {
   // Set the actual entry point in the arguments list.
   // argv[0] == node, argv[1] == entry point.
   // NB: entry_point below is replaced during the build process.
-  var mainScript = process.argv[1] = 'TEMPLATED_entry_point';
+  var mainScript = process.argv[1] = ENTRY_POINT;
   try {
     module.constructor._load(mainScript, this, /*isMain=*/true);
   } catch (e) {
     console.error(e.stack || e);
-    if (NODE_MODULES_ROOT === 'build_bazel_rules_nodejs/node_modules') {
-      // This error is possibly due to a breaking change in 0.13.0 where
-      // the default node_modules attribute of nodejs_binary was changed
-      // from @//:node_modules to @build_bazel_rules_nodejs//:node_modules_none
-      // (which is an empty filegroup).
-      // See https://github.com/bazelbuild/rules_nodejs/wiki#migrating-to-rules_nodejs-013
-      console.error(
-          `\nWARNING: Due to a breaking change in rules_nodejs 0.13.0, target TEMPLATED_target\n` +
-          `must now declare either an explicit node_modules attribute, or\n` +
-          `list explicit deps[] or data[] fine grained dependencies on npm labels\n` +
-          `if it has any node_modules dependencies.\n` +
-          `See https://github.com/bazelbuild/rules_nodejs/wiki#migrating-to-rules_nodejs-013\n`);
-    }
     process.exit(1);
   }
 }

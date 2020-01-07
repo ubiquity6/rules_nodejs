@@ -12,11 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//internal/golden_file_test:golden_file_test.bzl", "golden_file_test")
+
 package(default_visibility = ["//visibility:public"])
 
+bzl_library(
+    name = "bzl",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/npm_install:bzl",
+        "//third_party/github.com/bazelbuild/bazel-skylib:bzl",
+    ],
+)
+
 exports_files([
-    "node.bzl",  # Exported to be consumed for generating skydoc.
-    "node_repositories.bzl",  # Exported to be consumed for generating skydoc.
+    "node.bzl",  # Exported to be consumed for generating stardoc.
+    "node_repositories.bzl",  # Exported to be consumed for generating stardoc.
     "node_launcher.sh",
     "node_loader.js",
 ])
+
+filegroup(
+    name = "package_contents",
+    srcs = glob([
+        "*.bzl",
+        "*.js",
+        "*.sh",
+    ]) + [
+        "BUILD.bazel",
+    ],
+    visibility = ["//:__pkg__"],
+)
+
+golden_file_test(
+    name = "checked_in_node_patches",
+    actual = "//packages/node-patches:bundle",
+    golden = "bazel_require_script.js",
+)

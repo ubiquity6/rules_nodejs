@@ -1,47 +1,46 @@
-const generator = require('../generate_build_file');
 const fs = require('fs');
 const path = require('path');
 const unidiff = require('unidiff')
 
-function check(actual, updateGolden = false) {
-  // We must change the directory to the BUILD file path
-  // so the generator is able to run
-  process.chdir(path.dirname(__filename));
-
-  // Run the BUILD file generator
-  generator.main();
-
+function check(file, updateGolden = false) {
   // Strip comments from generated file for comparison to golden
   // to make comparison less brittle
-  const actualContents = fs.readFileSync(actual, {encoding: 'utf-8'})
-                             .replace(/\r\n/g, '\n')
-                             .split('\n')
-                             .filter(l => !l.trimLeft().startsWith('#'))
-                             .join('\n')
-                             .replace(/[\n]+/g, '\n');
+  const actual = require.resolve(path.posix.join('fine_grained_goldens', file));
+  const actualContents =
+      fs.readFileSync(actual, {encoding: 'utf-8'})
+          .replace(/\r\n/g, '\n')
+          .split('\n')
+          // Remove all comments for the comparison
+          .filter(l => !l.trimLeft().startsWith('#'))
+          // Remove .cmd files for the comparison since they only exist on Windows
+          .filter(l => !l.endsWith('.cmd",'))
+          .join('\n')
+          .replace(/[\n]+/g, '\n');
 
   // Load the golden file for comparison
-  const golden = path.posix.join('golden', actual + '.golden');
-  const goldenContents = fs.readFileSync(golden, {encoding: 'utf-8'}).replace(/\r\n/g, '\n');
+  const golden = require.resolve('./golden/' + file + '.golden');
 
-  // Check if actualContents matches golden file
-  if (actualContents !== goldenContents) {
-    if (updateGolden) {
-      // Write to golden file
-      fs.writeFileSync(golden, actualContents);
-      console.error(`Replaced ${path.join(process.cwd(), golden)}`);
-    } else {
+  if (updateGolden) {
+    // Write to golden file
+    // TODO(kyliau): Consider calling mkdirp() here, otherwise write operation
+    // would fail if directory does not already exist.
+    fs.writeFileSync(golden, actualContents);
+    console.error(`Replaced ${path.join(golden)}`);
+  } else {
+    const goldenContents = fs.readFileSync(golden, {encoding: 'utf-8'}).replace(/\r\n/g, '\n');
+    // Check if actualContents matches golden file
+    if (actualContents !== goldenContents) {
       // Generated does not match golden
       const diff = unidiff.diffLines(goldenContents, actualContents);
       const prettyDiff = unidiff.formatLines(diff);
-      throw new Error(`Actual output in ${actual} doesn't match golden file ${golden}.
+      throw new Error(`Actual output in ${file} doesn't match golden file ${golden}.
 
 Diff:
 ${prettyDiff}
 
 Update the golden file:
 
-      bazel run ${process.env['BAZEL_TARGET']}.accept`);
+      bazel run ${process.env['TEST_TARGET']}.accept`);
     }
   }
 }
@@ -50,19 +49,21 @@ module.exports = {
   check,
   files: [
     'BUILD.bazel',
+    'install_bazel_dependencies.bzl',
+    'manual_build_file_contents',
+    'WORKSPACE',
+    '@angular/core/BUILD.bazel',
     '@gregmagolan/BUILD.bazel',
-    '@gregmagolan/test-a/BUILD.bazel',
     '@gregmagolan/test-a/bin/BUILD.bazel',
+    '@gregmagolan/test-a/BUILD.bazel',
+    '@gregmagolan/test-a/index.bzl',
     '@gregmagolan/test-b/BUILD.bazel',
-    '@gregmagolan/test-b/bin/BUILD.bazel',
-    'jasmine/BUILD.bazel',
+    'ajv/BUILD.bazel',
     'jasmine/bin/BUILD.bazel',
+    'jasmine/BUILD.bazel',
+    'jasmine/index.bzl',
+    'rxjs/BUILD.bazel',
     'unidiff/BUILD.bazel',
-    'unidiff/bin/BUILD.bazel',
-    'node_modules/@gregmagolan/BUILD.bazel',
-    'node_modules/@gregmagolan/test-a/BUILD.bazel',
-    'node_modules/@gregmagolan/test-b/BUILD.bazel',
-    'node_modules/jasmine/BUILD.bazel',
-    'node_modules/unidiff/BUILD.bazel',
+    'zone.js/BUILD.bazel',
   ],
 };
